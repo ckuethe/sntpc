@@ -8,6 +8,7 @@
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 
 #define SECONDS_1900_1970 (25567 * 86400U)
@@ -45,10 +46,19 @@ void usage()
     printf("        -n  No set time (dry run)\n");
     printf("        -p  Set server port number (default 123)\n");
     printf("        -s  Set server name or IPv4 address (default pool.ntp.org)\n");
-    printf("        -t  Set maximum time offset threshold (default 300 seconds)\n");
+    printf("        -t  Set maximum time offset threshold (default 300 seconds, 0 = unlimited)\n");
     printf("        -v  Verbose (default silent)\n");
     exit(0);
 }
+
+#ifndef __OPENBSD__
+// Compatibility goo to cross-compile for a little arm linux iot gadget
+#define arc4random random
+
+int pledge(char *s, void *p){
+    return 0;
+}
+#endif
 
 int main(int argc, char *argv[])
 {
@@ -98,6 +108,12 @@ int main(int argc, char *argv[])
         if (he == NULL) {
             errx(1, "gethostbyname: %s", hstrerror(h_errno));
         }
+#ifndef __OPENBSD__
+        struct timeval r;
+        gettimeofday(&r, NULL);
+        // perhaps marginally better than the default seed of 1.
+        srandom((unsigned int)(r.tv_sec ^ r.tv_usec));
+#endif
         int n = 0;
         while (he->h_addr_list[n] != NULL) {
             n++;
@@ -184,7 +200,7 @@ int main(int argc, char *argv[])
 
     time_t local_now = time(NULL);
     if (verbose) {
-        printf("sntpc: local clock %lld (%.24s)\n", local_now, ctime(&local_now));
+        printf("sntpc: local clock %ld (%.24s)\n", local_now, ctime(&local_now));
     }
     if (local_now > seconds_since_1970 && !backwards) {
         errx(1, "not stepping clock backwards (use -b to allow this)");
@@ -193,7 +209,7 @@ int main(int argc, char *argv[])
     if (verbose) {
         printf("sntpc: local clock offset is %d\n", delta);
     }
-    if (abs(delta) > threshold) {
+    if (threshold && (abs(delta) > threshold)) {
         errx(1, "clock absolute offset %d exceeds threshold %d", delta, threshold);
     }
 
@@ -201,11 +217,15 @@ int main(int argc, char *argv[])
         struct timeval new_clock;
         new_clock.tv_sec = seconds_since_1970;
         new_clock.tv_usec = 0;
-        if (settimeofday(&new_clock, NULL) < 0) {
-            err(1, "settimeofday");
-        }
-        if (verbose) {
-            printf("sntpc: local clock set to %lld (%.24s)\n", new_clock.tv_sec, ctime(&new_clock.tv_sec));
+        if (delta) {
+            if (settimeofday(&new_clock, NULL) < 0) {
+                err(1, "settimeofday");
+            }
+            if (verbose) {
+                printf("sntpc: local clock set to %ld (%.24s)\n", new_clock.tv_sec, ctime(&new_clock.tv_sec));
+            }
+        } else {
+            printf("Server time == Local time, settimeofday() not needed.\n");
         }
     } else {
         printf("sntpc: not setting clock because of -n\n");
