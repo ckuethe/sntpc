@@ -36,10 +36,11 @@ int port = 123;
 const char *server = "pool.ntp.org";
 int threshold = 300;
 int verbose = 0;
+int maxwait = 10;
 
 void usage()
 {
-    printf("Usage: sntpc [-bhnv] [-p port] [-s server] [-t threshold]\n");
+    printf("Usage: sntpc [-bhnv] [-p port] [-s server] [-t threshold] [-w maxwait]\n");
     printf("\n");
     printf("        -b  Allow time shift backwards (default forward only)\n");
     printf("        -h  Show this help message\n");
@@ -48,6 +49,7 @@ void usage()
     printf("        -s  Set server name or IPv4 address (default pool.ntp.org)\n");
     printf("        -t  Set maximum time offset threshold (default 300 seconds, 0 = unlimited)\n");
     printf("        -v  Verbose (default silent)\n");
+    printf("        -w  Set maximum time to wait for a reply (default 10 seconds, 0 = unlimited)\n");
     exit(0);
 }
 
@@ -71,7 +73,7 @@ int main(int argc, char *argv[])
     }
 
     int ch;
-    while ((ch = getopt(argc, argv, "bhnp:s:t:v")) != -1) {
+    while ((ch = getopt(argc, argv, "bhnp:s:t:vw:")) != -1) {
         switch (ch) {
             case 'b':
                 backwards = 1;
@@ -94,6 +96,11 @@ int main(int argc, char *argv[])
             case 'v':
                 verbose = 1;
                 break;
+            case 'w':
+                maxwait = atoi(optarg);
+                if (maxwait < 0)
+                    maxwait = 0;
+                break;
         }
     }
 
@@ -102,6 +109,7 @@ int main(int argc, char *argv[])
         err(1, "socket");
     }
 
+    alarm(maxwait);
     in_addr_t addr = inet_addr(server);
     if (addr == INADDR_NONE) {
         struct hostent *he = gethostbyname(server);
